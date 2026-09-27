@@ -1,0 +1,32 @@
+{
+  "topology": [
+    ["gate", "lobby", 8.0, 2.0],
+    ["lobby", "vault", 12.0, 2.5]
+  ],
+  "cameras": [
+    {
+      "id": "gate",
+      "source": "data/vtest.avi",
+      "zones": {
+        "perimeter": {"poly": [[50, 50], [300, 50], [300, 400], [50, 400]], "crit": 1.0, "restricted": false}
+      },
+      "params": {"thr": 60, "alert_budget_per_hour": 6, "loiter_s": 8, "dwell_s": 3}
+    },
+    {
+      "id": "lobby",
+      "source": "data/vtest.avi",
+      "zones": {
+        "lobby_access": {"poly": [[200, 200], [500, 200], [500, 500], [200, 500]], "crit": 1.1, "restricted": false}
+      },
+      "params": {"thr": 60, "alert_budget_per_hour": 6, "loiter_s": 8, "dwell_s": 3}
+    },
+    {
+      "id": "vault",
+      "source": "data/vtest.avi",
+      "zones": {
+        "restricted_vault": {"poly": [[560, 380], [760, 380], [760, 570], [560, 570]], "crit": 1.4, "restricted": true}
+      },
+      "params": {"thr": 50, "alert_budget_per_hour": 4, "loiter_s": 6, "dwell_s": 2}
+    }
+  ]
+}

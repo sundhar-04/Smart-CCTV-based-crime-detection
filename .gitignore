@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.venv/
+venv/
+ENV/
+
+# Databases & Dynamic Uploads
+backend/smartcctv.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+smartcctv/w/out/
+smartcctv/w/out_multi/
+smartcctv/w/uploads/*
+!smartcctv/w/uploads/.gitkeep
+
+# Node / Web Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/*.local
+
+# OS & IDE
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

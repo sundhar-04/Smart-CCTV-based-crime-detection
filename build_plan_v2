@@ -1,0 +1,420 @@
+# SmartCCTV / Meridian — Revised Build Plan (Backend-First)
+
+> **Principle:** Build real working parts first. Meridian HTML is a UI reference only — we replicate its look last, after everything functions correctly.
+
+---
+
+## Current State
+
+| Asset | Status |
+|---|---|
+| SmartCCTV pipeline (YOLOv8, risk engine, tracking, evidence, tamper) | ✅ 15/15 tests pass |
+| Flask dashboard (`dashboard.py`) | ✅ Basic SOC — upload, review, confirm/dismiss |
+| FastAPI backend | ❌ Does not exist |
+| Meridian HTML | 📐 UI reference only — zero backend calls, all fake data |
+
+---
+
+## Revised Phase Order
+
+```
+Phase 1 → FastAPI backend + DB (core endpoints)
+Phase 2 → Video Analysis endpoint (THE BUG FIX)
+Phase 3 → Remaining backend endpoints (cameras, topology, settings, health, integrity, metrics)
+Phase 4 → Temporary functional web UI (minimal, proves everything works)
+Phase 5 → Meridian UI replication (polish, design, all 11 pages)
+```
+
+---
+
+## Phase 1: FastAPI Backend + Database *(~4 hours)*
+
+**Goal:** Stand up the real backend that wraps the existing SmartCCTV pipeline. Expose the core alert lifecycle via REST + WebSocket.
+
+### 1.1 — Project Structure
+
+```
+d:\Hackwell\smartcctv\w\backend\
+├── main.py                 # FastAPI app, CORS, mount routers
+├── database.py             # SQLAlchemy + SQLite (alerts, cameras, analysis_jobs, audit_log, settings)
+├── models.py               # DB models
+├── schemas.py              # Pydantic request/response schemas
+├── routers/
+│   ├── alerts.py           # GET /alerts, GET /alerts/{id}, POST /alerts/{id}/decision
+│   └── upload.py           # POST /upload (existing dashboard upload, migrated)
+├── ws_manager.py           # WebSocket broadcast manager
+├── core_bridge.py          # Import bridge to smartcctv/ modules
+├── seed_db.py              # Populate DB from existing out/ data (one-time)
+└── requirements.txt        # fastapi, uvicorn, sqlalchemy, python-multipart
+```
+
+### 1.2 — Database Schema
+
+```sql
+-- alerts: mirrors existing alerts.chain.jsonl structure
+CREATE TABLE alerts (
+    id TEXT PRIMARY KEY,
+    entity TEXT,
+    camera TEXT,
+    zone TEXT,
+    score REAL,
+    types TEXT,          -- JSON array
+    reasons TEXT,        -- JSON array
+    status TEXT DEFAULT 'PENDING_CONFIRMATION',
+    -- PENDING_CONFIRMATION | CONFIRMED | DISMISSED | SUPPRESSED_BY_BUDGET | EXPIRED
+    dismiss_reason TEXT,
+    dispatch_channels TEXT,  -- JSON array
+    clip_path TEXT,
+    clip_sha256 TEXT,
+    best_shot_path TEXT,
+    global_id TEXT,
+    created_at TIMESTAMP,
+    decided_at TIMESTAMP,
+    decided_by TEXT
+);
+
+-- cameras: registered camera sources
+CREATE TABLE cameras (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    zone TEXT,
+    source TEXT,          -- RTSP URL or file path
+    status TEXT DEFAULT 'offline',
+    map_x REAL,
+    map_y REAL,
+    config TEXT           -- JSON blob (zones, params)
+);
+
+-- analysis_jobs: on-demand video analysis
+CREATE TABLE analysis_jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT DEFAULT 'queued',  -- queued | processing | done | error
+    source_filename TEXT,
+    source_path TEXT,
+    progress_pct REAL DEFAULT 0,
+    frames_done INTEGER DEFAULT 0,
+    frames_total INTEGER DEFAULT 0,
+    peak_score REAL DEFAULT 0,
+    threshold REAL,
+    zones TEXT,           -- JSON (user-drawn zones, if any)
+    result_alert_ids TEXT, -- JSON array
+    error_message TEXT,
+    created_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- settings: key-value config store
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,           -- JSON
+    updated_at TIMESTAMP,
+    updated_by TEXT
+);
+
+-- audit_log: append-only
+CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT,
+    user_name TEXT,
+    object_type TEXT,
+    object_id TEXT,
+    detail TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 1.3 — Core Endpoints (Phase 1 scope)
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/alerts` | List alerts with filters (`status`, `camera`, `risk`, `sort`, `page`, `limit`) |
+| `GET` | `/alerts/{id}` | Single alert detail with signals, timeline |
+| `POST` | `/alerts/{id}/decision` | Confirm or dismiss — updates DB + appends to hash chain |
+| `GET` | `/health` | Basic health check (DB connected, workers count) |
+| `WS` | `/ws` | Broadcast channel for `alert.created`, `alert.updated` |
+
+### 1.4 — Core Bridge (`core_bridge.py`)
+
+Import existing modules directly:
+
+```python
+import sys
+sys.path.insert(0, 'd:/Hackwell/smartcctv/w')
+
+from smartcctv.risk import RiskEngine
+from smartcctv.detector_yolo8 import YoloDetector
+from smartcctv.detector import Detector, MotionGate
+from smartcctv.evidence import Evidence, Chain
+from smartcctv.tamper import TamperMonitor
+```
+
+### 1.5 — Seed DB from Existing Data
+
+Read `out/alerts.chain.jsonl` and `out/summary.json` to populate the alerts table with data from previous runs.
+
+### 1.6 — Done-When
+
+- [ ] `uvicorn backend.main:app --reload` starts on port 8000
+- [ ] `GET /alerts` returns real alerts from DB
+- [ ] `POST /alerts/{id}/decision` with `{"action": "confirm", "channels": ["telegram"]}` updates the alert status
+- [ ] `GET /health` returns `{"status": "ok"}`
+- [ ] Can test all endpoints with `curl` or browser
+
+---
+
+## Phase 2: Video Analysis Endpoint — THE BUG FIX *(~5 hours)*
+
+> [!CAUTION]
+> This is the #1 priority. The current system uses `spawnDetection()` which generates random fake alerts from `pick(INCIDENT_TYPES)`. We replace it with the real pipeline.
+
+### 2.1 — Analysis Worker
+
+```
+d:\Hackwell\smartcctv\w\backend\
+├── analysis_worker.py      # Background thread/process that runs the real pipeline
+```
+
+**What it does:**
+1. Receives a video file path + optional zone definitions
+2. Opens video with `cv2.VideoCapture`
+3. Runs the **exact same** cascade as `smartcctv/run.py`:
+   - `YoloDetector` (or `Detector` fallback) for frame detection
+   - `MotionGate` for skip optimization
+   - `ByteTrack` / `SimpleIOUTracker` for tracking
+   - `RiskEngine` for per-entity risk accumulation
+   - `Evidence` for clip capture + hash chain
+4. Streams per-frame results via WebSocket (`/ws/analysis/{job_id}`)
+5. On completion, writes any real alerts to the `alerts` table
+
+### 2.2 — New Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/analysis/upload` | Accept multipart video → save to `uploads/` → create job row → return `{job_id}` |
+| `POST` | `/analysis/{job_id}/start` | Start analysis (optionally with zones JSON) |
+| `GET` | `/analysis/{job_id}/status` | `{status, progress_pct, frames_done, frames_total, peak_score}` |
+| `GET` | `/analysis/{job_id}/result` | Final: detections list, risk timeline, alert IDs, peak score, threshold |
+| `WS` | `/ws/analysis/{job_id}` | Live stream: per-frame detections + running risk scores |
+
+### 2.3 — Key Design Decisions
+
+1. **No zones = reduced mode**: Skip `ZONE_ENTER`, `ZONE_DWELL` signals. Only `LOITER`, `RUNNING`, `UNATTENDED` apply. The API response must say this explicitly.
+2. **Same pipeline, different source**: The worker imports the same `smartcctv/` modules, just with a local file instead of RTSP.
+3. **Deterministic**: Running the same video twice must produce the same results (no randomness).
+4. **Real alerts**: Any detection that crosses threshold gets written to the `alerts` table with the same schema as a live-camera alert.
+
+### 2.4 — Temporary Test UI
+
+A minimal HTML page to prove it works (NOT the final Meridian UI):
+
+```
+d:\Hackwell\smartcctv\w\backend\static\
+└── test_analysis.html    # Upload form + progress bar + results display
+```
+
+Features:
+- File upload form
+- Progress bar (polls `/analysis/{job_id}/status`)
+- Results table showing real detections with risk scores
+- "No alerts" message always includes peak score vs threshold
+
+### 2.5 — Done-When
+
+- [ ] Upload `demo_annotated.mp4` → real detections appear with real risk scores
+- [ ] Upload a static/empty video → zero alerts + message: "Peak score X out of threshold Y"
+- [ ] Same video uploaded twice → identical results (deterministic)
+- [ ] Alerts from analysis appear in `GET /alerts`
+- [ ] No `Math.random`, `seededRandom`, or `pick(INCIDENT_TYPES)` anywhere in the analysis path
+- [ ] Test UI page works in browser at `http://localhost:8000/static/test_analysis.html`
+
+---
+
+## Phase 3: Remaining Backend Endpoints *(~4 hours)*
+
+**Goal:** Complete all API endpoints needed by every Meridian page.
+
+### 3.1 — Camera Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/cameras` | List all cameras with status, position, config |
+| `GET` | `/cameras/{id}` | Single camera detail |
+| `PUT` | `/cameras/{id}` | Update camera config (zones, position) |
+| `GET` | `/cameras/{id}/snapshot` | Latest frame as JPEG (from last run or live) |
+| `POST` | `/cameras` | Register a new camera source |
+
+### 3.2 — Identity & Topology
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/topology` | All camera-to-camera edges with transit times |
+| `PUT` | `/topology` | Add/update edges |
+| `GET` | `/identity/ghosts` | Currently unaccounted subjects (from `xcam.py` linker) |
+
+### 3.3 — Settings & Config
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/settings` | All settings as JSON (risk, detection, retention, privacy, notifications) |
+| `PUT` | `/settings` | Update settings → audit log entry → workers reload |
+| `GET` | `/settings/history` | Past settings changes with diffs |
+
+### 3.4 — System Health
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Host stats: CPU, memory, disk, DB status |
+| `GET` | `/health/cameras` | Per-camera worker stats: FPS, skip rate, queue depth, errors |
+| `POST` | `/health/cameras/{id}/restart` | Restart a camera worker |
+
+### 3.5 — Integrity & Audit
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/integrity/head` | Chain head hash, length, last verified time |
+| `GET` | `/integrity/verify` | Run full chain verification, return pass/fail |
+| `GET` | `/audit` | Audit log with filters (user, action, date range) |
+
+### 3.6 — Metrics
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/metrics/summary` | Incidents over time, risk distribution, category totals, peak hours, confidence histogram |
+| `GET` | `/metrics/cameras` | Per-camera metrics (uptime, false-positive rate) |
+
+### 3.7 — Users
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/users` | List users |
+| `POST` | `/users` | Create user |
+| `PUT` | `/users/{id}` | Update user (role, active status) |
+| `DELETE` | `/users/{id}` | Deactivate user |
+
+### 3.8 — Done-When
+
+- [ ] Every endpoint returns real data (from DB or computed from pipeline state)
+- [ ] `PUT /settings` → change risk threshold → verify `GET /settings` reflects the change
+- [ ] `GET /integrity/verify` runs the real `Chain.verify()` from `evidence.py`
+- [ ] `GET /health` returns real CPU/memory stats via `psutil`
+- [ ] All endpoints testable via `curl` / Swagger UI at `http://localhost:8000/docs`
+
+---
+
+## Phase 4: Temporary Functional Web UI *(~4 hours)*
+
+**Goal:** Minimal but functional web frontend that proves all backend features work. NOT the final Meridian-styled UI — just enough to interact with every endpoint.
+
+### 4.1 — Setup
+
+```
+d:\Hackwell\smartcctv\w\web\
+├── package.json          # Vite + React + TypeScript
+├── vite.config.ts        # proxy /api → localhost:8000
+└── src/
+    ├── main.tsx
+    ├── App.tsx            # Simple router with nav links
+    ├── api/
+    │   ├── client.ts      # Typed fetch wrapper (one function per endpoint)
+    │   └── ws.ts          # WebSocket client with reconnect
+    ├── pages/
+    │   ├── DashboardPage.tsx      # KPIs + recent alerts list
+    │   ├── AnalysisPage.tsx       # Upload + progress + results (functional version)
+    │   ├── AlertsPage.tsx         # List + Confirm/Dismiss buttons
+    │   ├── CamerasPage.tsx        # Camera list + config
+    │   ├── SettingsPage.tsx       # Settings form + save
+    │   ├── HealthPage.tsx         # System stats + worker table
+    │   └── IntegrityPage.tsx      # Chain status + audit log
+    └── components/
+        ├── AlertCard.tsx
+        ├── RiskBadge.tsx
+        └── ProgressBar.tsx
+```
+
+### 4.2 — Critical Feature: Analysis Page (Functional)
+
+This is the working replacement for the broken `VideoAnalysisPage`:
+
+1. File upload → calls `POST /analysis/upload`
+2. Optional zone drawing on extracted frame (basic canvas polygon tool)
+3. Start button → `POST /analysis/{job_id}/start`
+4. Progress bar polling `GET /analysis/{job_id}/status`
+5. WebSocket connection for live detections
+6. Results panel showing real alerts with risk scores
+7. Honest empty-state messages with peak score vs threshold
+
+### 4.3 — Done-When
+
+- [ ] Every backend endpoint is exercised through the UI
+- [ ] Video upload → real analysis → real alerts (or honest "no alerts" with score)
+- [ ] Confirm/Dismiss alerts works end-to-end
+- [ ] Settings save → backend reflects changes
+- [ ] WebSocket pushes update the UI live
+- [ ] All functionality works — ready for visual polish
+
+---
+
+## Phase 5: Meridian UI Replication *(~6 hours)*
+
+**Goal:** Replace the temporary UI with the polished Meridian design. All 11 pages, every visual detail, using the working backend from Phases 1-4.
+
+### 5.1 — Approach
+
+1. Extract CSS design tokens from Meridian HTML (lines 14-390) → `tokens.css`
+2. Extract Icon system (lines 909-967) → `Icon.tsx` + `ICN` constants
+3. Port each Meridian component one-by-one, replacing mock data reads with API calls
+4. Screenshot-compare each page against the Meridian original
+5. Ensure every interactive feature works with real data
+
+### 5.2 — Component Port Order
+
+**Shell first:**
+- App shell (sidebar, topbar, system banner)
+- CommandPalette, NotificationDrawer, ToastStack
+
+**Then pages (in nav order):**
+1. CommandCenterPage (KPIs, NetworkGraph, trend chart, activity feed)
+2. VideoAnalysisPage (upgrade from Phase 4's functional version to full Meridian design)
+3. IncidentsPage (risk-ranked cards with expand/collapse)
+4. AlertsPage (tabbed: Pending/Confirmed/Dismissed/Digest/System)
+5. CameraMapPage (SVG grid map with pins + detail panel)
+6. CameraGridPage (layout switcher + live tiles)
+7. IdentityTopologyPage (TopologyGraph + ghosts + linked alerts)
+8. HistoryPage (filtered paginated table)
+9. AnalyticsPage (5 charts: line, doughnut, 2x bar, histogram)
+10. IntegrityAuditPage (chain status + audit table)
+11. SystemHealthPage (host gauges + worker table)
+
+**Settings tabs (7):**
+Risk, Detection, Retention, Notifications, Users, Privacy, System
+
+**Modals:**
+IncidentInvestigationModal (3-column: evidence + explanation + intelligence)
+ConfirmPanel, DismissPanel
+
+### 5.3 — Done-When
+
+- [ ] All 11 pages pixel-match Meridian design
+- [ ] All pages show real data from backend (not mocks)
+- [ ] RBAC filtering works (role switcher hides/shows pages)
+- [ ] ⌘K command palette searches real data
+- [ ] WebSocket-driven live updates (toasts, activity feed, alert badges)
+- [ ] `grep -r "seededRandom\|Math.random\|pick(" web/src` returns nothing
+- [ ] Kill backend → every page shows error state, not fake data
+
+---
+
+## Execution Summary
+
+| Phase | Focus | Effort | What You Get |
+|---|---|---|---|
+| **1** | FastAPI + DB + core alerts | ~4 hrs | Real alert CRUD, decision workflow, hash chain |
+| **2** | Video Analysis (BUG FIX) | ~5 hrs | Upload video → real YOLOv8 detection → real alerts |
+| **3** | All remaining endpoints | ~4 hrs | Complete API: cameras, topology, settings, health, metrics |
+| **4** | Temporary functional UI | ~4 hrs | Proof everything works end-to-end |
+| **5** | Meridian UI replication | ~6 hrs | Polished 11-page SOC console with real data |
+
+**Total:** ~23 hours
+
+> [!IMPORTANT]
+> **Phase 2 is the critical deliverable** — it directly fixes the reported bug where video analysis produces random fake alerts instead of real detections.

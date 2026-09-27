@@ -1,0 +1,36 @@
+{
+  "test_scenarios": [
+    {
+      "name": "normal_pedestrian",
+      "description": "Pedestrian walking past camera without entering restricted zones or loitering",
+      "ground_truth_threat": false,
+      "expected_alert": false
+    },
+    {
+      "name": "restricted_zone_intruder",
+      "description": "Person enters restricted vault zone and dwells/loiters inside",
+      "ground_truth_threat": true,
+      "expected_alert": true,
+      "expected_types": ["ZONE_ENTER", "LOITER"]
+    },
+    {
+      "name": "unattended_backpack",
+      "description": "Owner leaves backpack stationary and walks away outside threshold distance",
+      "ground_truth_threat": true,
+      "expected_alert": true,
+      "expected_types": ["UNATTENDED"]
+    },
+    {
+      "name": "carried_backpack",
+      "description": "Pedestrian walks continuously while wearing/carrying backpack",
+      "ground_truth_threat": false,
+      "expected_alert": false
+    },
+    {
+      "name": "rapid_zone_crosser",
+      "description": "Person briefly crosses corner of zone for under 1 second without dwelling",
+      "ground_truth_threat": false,
+      "expected_alert": false
+    }
+  ]
+}
