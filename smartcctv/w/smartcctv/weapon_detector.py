@@ -33,6 +33,17 @@ class WeaponDetector:
         self.person_hits = defaultdict(int)
         self.person_last_t = defaultdict(float)
 
+        # Resolve weights with fallback to repository models directory
+        models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "models"))
+        if not os.path.exists(gun_weights):
+            local_gun = os.path.join(models_dir, "best.pt")
+            if os.path.exists(local_gun):
+                gun_weights = local_gun
+        if not os.path.exists(weapon_weights):
+            local_weapon = os.path.join(models_dir, "best (3).pt")
+            if os.path.exists(local_weapon):
+                weapon_weights = local_weapon
+
         self.gun_model = None
         if os.path.exists(gun_weights):
             try:
