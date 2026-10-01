@@ -50,12 +50,25 @@ def init_db():
         status TEXT,
         fps REAL,
         rtsp_url TEXT,
+        stream_url TEXT,
+        protocol TEXT DEFAULT 'mjpeg',
+        enabled INTEGER DEFAULT 1,
         map_x REAL,
         map_y REAL,
         zones TEXT,
         last_seen TEXT
     )
     """)
+
+    # Ensure stream_url, protocol, and enabled columns exist in cameras table
+    cursor.execute("PRAGMA table_info(cameras)")
+    cam_cols = {row[1] for row in cursor.fetchall()}
+    if "stream_url" not in cam_cols:
+        cursor.execute("ALTER TABLE cameras ADD COLUMN stream_url TEXT")
+    if "protocol" not in cam_cols:
+        cursor.execute("ALTER TABLE cameras ADD COLUMN protocol TEXT DEFAULT 'mjpeg'")
+    if "enabled" not in cam_cols:
+        cursor.execute("ALTER TABLE cameras ADD COLUMN enabled INTEGER DEFAULT 1")
 
     # Analysis Jobs Table
     cursor.execute("""
@@ -72,9 +85,17 @@ def init_db():
         peak_risk_score REAL,
         no_alert_reason TEXT,
         alerts_generated TEXT,
-        result_json TEXT
+        result_json TEXT,
+        live_tracks TEXT,
+        live_alerts TEXT
     )
     """)
+    # Migrate existing DBs: add columns if missing
+    for col in ["live_tracks", "live_alerts"]:
+        try:
+            cursor.execute(f"ALTER TABLE analysis_jobs ADD COLUMN {col} TEXT")
+        except Exception:
+            pass  # Column already exists
 
     # Settings Table
     cursor.execute("""

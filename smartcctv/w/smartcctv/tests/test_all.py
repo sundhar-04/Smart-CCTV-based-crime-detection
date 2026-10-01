@@ -121,6 +121,32 @@ def test_feedback_loop_and_dashboard():
     assert Chain.verify(out + "/decisions.chain.jsonl")[0]
     e = RiskEngine(CFG, weights_path=out + "/weights.json"); e._reload(100); assert e.scale["LOITER"] == w
 
+def test_running_with_knife_alerts_fast():
+    """Person enters zone, starts running with a knife -> alert must fire quickly."""
+    e = RiskEngine(CFG)
+    seq = []
+    # Walk toward zone
+    seq += [[P(1, 200 + 15 * k, 300)] for k in range(20)]
+    # Enter zone + run with knife
+    for k in range(80):
+        px = 500 + 12 * k
+        seq.append([P(1, px, 300), dict(id=99, cls="knife", box=(px + 10, 180, px + 30, 220))])
+    al = run(e, seq)
+    assert al and al[0]["score"] >= 60, f"Expected alert with score >= 60, got {al}"
+    reasons = " ".join(al[0]["reasons"])
+    assert "WEAPON_NEAR_PERSON" in reasons, f"Expected WEAPON_NEAR_PERSON in reasons: {reasons}"
+
+def test_knife_near_person_no_zone_still_alerts():
+    """Even without zones, a weapon near a person for several seconds must alert."""
+    cfg_no_zone = {"zones": {}, "params": {"start": "2026-01-01T12:00:00"}}
+    e = RiskEngine(cfg_no_zone)
+    seq = []
+    # Person standing with knife visible for 6 seconds
+    for k in range(60):
+        seq.append([P(1, 400, 300), dict(id=99, cls="knife", box=(410, 180, 430, 220))])
+    al = run(e, seq)
+    assert any("WEAPON_NEAR_PERSON" in " ".join(a["reasons"]) for a in al), f"Weapon should alert even without zones: {al}"
+
 if __name__ == "__main__":
     fails = 0
     for n, f in list(globals().items()):

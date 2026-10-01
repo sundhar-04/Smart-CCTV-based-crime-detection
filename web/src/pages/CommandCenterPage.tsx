@@ -34,7 +34,17 @@ function NetworkGraph({ cameras }: { cameras: Camera[] }) {
       name: c.name,
     }));
 
-    const statusColor: Record<string, string> = { online: '#3DD68C', offline: '#4A5568', alert: '#E5484D', degraded: '#E6C560', maintenance: '#E6C560' };
+    const statusColor: Record<string, string> = {
+      connected: '#3DD68C',
+      online: '#3DD68C',
+      connecting: '#E6C560',
+      disconnected: '#4A5568',
+      offline: '#4A5568',
+      error: '#E5484D',
+      alert: '#E5484D',
+      degraded: '#E6C560',
+      maintenance: '#E6C560'
+    };
 
     function resize() {
       const rect = canvas!.parentElement!.getBoundingClientRect();
@@ -97,7 +107,7 @@ function NetworkGraph({ cameras }: { cameras: Camera[] }) {
       // Node points
       sorted.forEach((n) => {
         const r = 2.6 * n.proj.scale;
-        const col = statusColor[n.status] || '#4C9EFF';
+        const col = statusColor[(n.status || '').toLowerCase()] || '#4C9EFF';
         ctx.globalAlpha = Math.max(0.35, n.proj.scale);
         if (n.status === 'alert') {
           const pulse = (Math.sin(Date.now() / 260 + n.angle * 4) + 1) / 2;
@@ -156,7 +166,11 @@ export function CommandCenterPage({ setPage, onOpenIncident }: CommandCenterPage
     return () => unsubscribe();
   }, []);
 
-  const onlineCams = cameras.filter((c) => c.status === 'online').length;
+  const isCamOnline = (s: string) => {
+    const st = (s || '').toLowerCase();
+    return st === 'online' || st === 'connected';
+  };
+  const onlineCams = cameras.filter((c) => isCamOnline(c.status)).length;
   const activeAlerts = alerts.filter(a => a.status === 'active' || a.status === 'reviewing');
 
   return (
@@ -276,12 +290,17 @@ export function CommandCenterPage({ setPage, onOpenIncident }: CommandCenterPage
               <div key={cam.id} className="list-row" style={{ padding: '10px 14px' }}>
                 <StatusDot status={cam.status} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>{cam.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: 12 }}>{cam.name}</span>
+                    <span className="chip" style={{ fontSize: 9, padding: '1px 5px', textTransform: 'uppercase' }}>
+                      {cam.status}
+                    </span>
+                  </div>
                   <div style={{ fontSize: 10, color: 'var(--text-low)' }}>{cam.location}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-mid)' }} className="mono">{cam.fps} FPS</div>
-                  <div style={{ fontSize: 10, color: 'var(--text-low)' }} className="mono">{cam.zone_type}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-low)' }} className="mono">{cam.protocol || cam.zone_type}</div>
                 </div>
               </div>
             ))}

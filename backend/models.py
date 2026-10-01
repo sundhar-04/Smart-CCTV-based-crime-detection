@@ -40,13 +40,32 @@ class CameraModel(BaseModel):
     name: str
     location: str
     zone_type: str = "SECURE"
-    status: str = "online"
+    status: str = "DISCONNECTED"
     fps: float = 25.0
     rtsp_url: Optional[str] = None
+    stream_url: Optional[str] = None
+    protocol: str = "mjpeg"
+    enabled: bool = True
     map_x: float = 50.0
     map_y: float = 50.0
-    zones: Optional[Dict[str, List[List[int]]]] = {}
+    zones: Optional[Dict[str, Any]] = {}
     last_seen: Optional[str] = None
+    error: Optional[str] = None
+
+class CameraTestConnectionRequest(BaseModel):
+    stream_url: str
+    protocol: Optional[str] = "mjpeg"
+
+class CameraPositionUpdate(BaseModel):
+    map_x: float
+    map_y: float
+
+class CameraTestConnectionResponse(BaseModel):
+    status: str  # "CONNECTED" or "FAILED"
+    error: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fps: Optional[float] = None
 
 class AnalysisJobCreateResponse(BaseModel):
     job_id: str

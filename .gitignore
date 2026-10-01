@@ -25,13 +25,25 @@ venv/
 ENV/
 
 # Databases & Dynamic Uploads
+*.db
 backend/smartcctv.db
+uploads/
 backend/uploads/*
 !backend/uploads/.gitkeep
 smartcctv/w/out/
 smartcctv/w/out_multi/
 smartcctv/w/uploads/*
 !smartcctv/w/uploads/.gitkeep
+
+# Runtime & Test Artifacts
+*_log.txt
+*.log
+*.npy
+*.jpg
+*.jpeg
+*.png
+
+
 
 # Node / Web Frontend
 web/node_modules/

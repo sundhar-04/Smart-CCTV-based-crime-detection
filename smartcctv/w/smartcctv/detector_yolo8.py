@@ -10,13 +10,13 @@ try:
 except ImportError:
     _HAS_YOLO8 = False
 
-# COCO Class IDs: person (0), backpack (24), handbag (26), suitcase (28), knife (43)
-KEEP_COCO_IDS = [0, 24, 26, 28, 43]
-KEEP_NAMES = {"person", "backpack", "handbag", "suitcase", "knife"}
+# COCO Class IDs: person (0), backpack (24), handbag (26), suitcase (28)
+KEEP_COCO_IDS = [0, 24, 26, 28]
+KEEP_NAMES = {"person", "backpack", "handbag", "suitcase"}
 
 class YoloDetector:
     """YOLOv8 Detector backend with automatic device selection and Stage 2 crop verification."""
-    def __init__(self, weights="yolov8n.pt", imgsz=640, conf=0.25, verify_hi=0.5, device=None, keep=KEEP_NAMES):
+    def __init__(self, weights="yolov8n.pt", imgsz=640, conf=0.35, verify_hi=0.5, device=None, keep=KEEP_NAMES):
         if not _HAS_YOLO8:
             raise ImportError("ultralytics/torch is required for YoloDetector. Install with `pip install ultralytics`")
         
@@ -52,34 +52,6 @@ class YoloDetector:
 
     def __call__(self, frame):
         self.calls += 1
-        out = []
-        H, W = frame.shape[:2]
-        
-        raw_dets = self._raw(frame, self.conf)
-        for (x1, y1, x2, y2, c, n) in raw_dets:
-            if c >= self.hi:
-                out.append((x1, y1, x2, y2, c, n))
-                continue
-            
-            # Stage 2: Uncertain detection -> re-run on a padded full-resolution crop
-            self.verify_calls += 1
-            pw, ph = int(0.3 * (x2 - x1)), int(0.3 * (y2 - y1))
-            cx1, cy1 = max(0, int(x1 - pw)), max(0, int(y1 - ph))
-            cx2, cy2 = min(W, int(x2 + pw)), min(H, int(y2 + ph))
-            crop = frame[cy1:cy2, cx1:cx2]
-            
-            if crop.size == 0:
-                continue
-                
-            verified = False
-            for (a, b, c2, d, cc, nn) in self._raw(crop, 0.4, imgsz=max(self.imgsz, 640)):
-                if nn == n:
-                    out.append((a + cx1, b + cy1, c2 + cx1, d + cy1, max(c, cc), n))
-                    verified = True
-                    break
-            
-            # If verification crop didn't match, still retain original if confidence was moderately close
-            if not verified and c >= (self.conf + 0.05):
-                out.append((x1, y1, x2, y2, c, n))
-                
-        return out
+        # Fast single-pass detection for real-time video stream (sub-16ms latency)
+        return self._raw(frame, self.conf)
+

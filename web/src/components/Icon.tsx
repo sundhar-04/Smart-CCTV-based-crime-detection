@@ -81,6 +81,9 @@ export const ICN = {
   link: (p: IconProps) => <Icon {...p} d={["M9 17H7a5 5 0 0 1 0-10h2", "M15 7h2a5 5 0 0 1 0 10h-2", "M8 12h8"]} />,
   ghost: (p: IconProps) => <Icon {...p} d="M12 2a7 7 0 0 0-7 7v11l2.5-2 2 2 2.5-2.5 2.5 2.5 2-2 2.5 2V9a7 7 0 0 0-7-7Z" />,
   radio: (p: IconProps) => <Icon {...p} d={["M12 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z", "M8.5 15.5a5 5 0 0 1 0-7", "M15.5 8.5a5 5 0 0 1 0 7", "M5.5 18.5a9 9 0 0 1 0-13", "M18.5 5.5a9 9 0 0 1 0 13"]} />,
+  plus: (p: IconProps) => <Icon {...p} d={["M12 5v14", "M5 12h14"]} />,
+  trash: (p: IconProps) => <Icon {...p} d={["M3 6h18", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"]} />,
+  refresh: (p: IconProps) => <Icon {...p} d={["M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5", "M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16", "M21 21v-5h-5"]} />,
 };
 
 export function TypeIcon({ type, size, style, className }: { type: string; size?: number; style?: React.CSSProperties; className?: string }) {

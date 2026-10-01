@@ -5,6 +5,8 @@ from .risk import RiskEngine
 from .evidence import Evidence, Chain, create_video_writer
 from .tamper import TamperMonitor
 from .notify import dispatch
+from .pose_violence import PoseViolenceDetector
+from .weapon_detector import WeaponDetector
 
 try:
     import supervision as sv
@@ -113,6 +115,8 @@ def main():
     meta = {"detector": det_name, "config_hash": cfg_hash, "camera": cfg.get("camera_id", "cam1")}
     eng = RiskEngine(cfg, fps, weights_path=f"{a.out}/weights.json")
     ev = Evidence(a.out, fps, meta=meta)
+    pose_detector = PoseViolenceDetector()
+    weapon_detector = WeaponDetector()
     
     names = det.names
     last = []
@@ -137,7 +141,7 @@ def main():
             print(f"[TAMPER] t={t:.1f}s {al['kind']}")
             dispatch(al, a.out)
             
-        run_det = gate(frame) and (i % max(1, int(fps / 10)) == 0)
+        run_det = gate(frame) and (i % max(1, int(fps / 15)) == 0)
         if run_det:
             t0 = time.time()
             d = det(frame)
@@ -151,21 +155,43 @@ def main():
                 dets = sv.Detections(xyxy=xyxy, confidence=confs, class_id=cids)
             else:
                 dets = [(x[:4], names.index(x[5]), x[4]) for x in d]
+            tr = trk.update_with_detections(dets)
+            last = [dict(id=int(tid), cls=names[int(c)], box=tuple(map(float, b)))
+                    for b, tid, c in zip(tr.xyxy, tr.tracker_id, tr.class_id)]
+            if len(last) >= 2:
+                keep = [True] * len(last)
+                for ki in range(len(last)):
+                    if not keep[ki]: continue
+                    b1, a1 = last[ki]["box"], (last[ki]["box"][2]-last[ki]["box"][0])*(last[ki]["box"][3]-last[ki]["box"][1])
+                    for kj in range(ki + 1, len(last)):
+                        if not keep[kj] or last[ki]["cls"] != last[kj]["cls"]: continue
+                        b2, a2 = last[kj]["box"], (last[kj]["box"][2]-last[kj]["box"][0])*(last[kj]["box"][3]-last[kj]["box"][1])
+                        dx, dy = min(b1[2], b2[2]) - max(b1[0], b2[0]), min(b1[3], b2[3]) - max(b1[1], b2[1])
+                        if dx > 0 and dy > 0 and (dx * dy) / min(a1, a2) > 0.70:
+                            if a1 >= a2: keep[kj] = False
+                            else: keep[ki] = False; break
+                last = [p for p, k in zip(last, keep) if k]
         else:
-            if HAVE_SUPERVISION:
-                dets = sv.Detections.empty()
-            else:
-                dets = []
             if not gate(frame):
                 skipped += 1
-                
-        tr = trk.update_with_detections(dets)
-        last = [dict(id=int(tid), cls=names[int(c)], box=tuple(map(float, b)))
-                for b, tid, c in zip(tr.xyxy, tr.tracker_id, tr.class_id)]
 
-        for x in last:
-            if x["cls"] == "person" and i % 3 == 0:
+        persons_in_frame = [x for x in last if x["cls"] == "person"]
+        for x in persons_in_frame:
+            if i % 3 == 0:
                 ev.best_shot(f"{eng.cam}:P{x['id']}", frame, x["box"])
+
+        if pose_detector and persons_in_frame and run_det:
+            for pev in pose_detector.analyze(frame, t, persons_in_frame):
+                pk = f"{eng.cam}:P{pev['track_id']}"
+                eng.emit(pk, pev["type"], t)
+
+        if weapon_detector and persons_in_frame and run_det:
+            for wd in weapon_detector.detect(frame, persons_in_frame, t=t):
+                last.append(dict(id=900 + len(last), cls=wd["cls"], box=wd["box"]))
+                if wd.get("person_id") is not None:
+                    pk = f"{eng.cam}:P{wd['person_id']}"
+                    z = eng._zone(((wd["box"][0] + wd["box"][2]) / 2, wd["box"][3]))
+                    eng.emit(pk, "WEAPON_NEAR_PERSON", t, z)
                 
         for al in eng.update(t, last):
             if al["status"] == "SUPPRESSED_BY_BUDGET":

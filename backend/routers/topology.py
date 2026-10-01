@@ -37,16 +37,23 @@ def get_topology():
 
 @router.get("/identity/ghosts")
 def get_identity_ghosts():
-    # Live in-transit ghost tracked objects across cameras
-    return {
-        "ghosts": [
-            {
-                "ghost_id": "GHOST-8821",
-                "last_seen_camera": "cam_gate1",
-                "predicted_camera": "cam_lobby",
-                "confidence": 0.91,
-                "time_in_transit_s": 4.2,
-                "features_vector": "reid_embed_992"
-            }
-        ]
-    }
+    """Live in-transit ghost tracked objects across cameras with appearance embeddings."""
+    try:
+        from backend.cross_cam_coordinator import cross_camera_coordinator
+        ghosts = cross_camera_coordinator.get_in_transit_ghosts()
+        handoffs = cross_camera_coordinator.get_handoff_history()
+        return {
+            "ghosts": ghosts,
+            "recent_handoffs": handoffs
+        }
+    except Exception as e:
+        return {"ghosts": [], "recent_handoffs": [], "error": str(e)}
+
+@router.get("/identity/handoffs")
+def get_identity_handoffs():
+    """History of verified cross-camera identity and risk handoffs."""
+    try:
+        from backend.cross_cam_coordinator import cross_camera_coordinator
+        return cross_camera_coordinator.get_handoff_history()
+    except Exception as e:
+        return []

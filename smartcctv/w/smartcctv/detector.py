@@ -1,6 +1,6 @@
 """Stage 0 motion gate + Stage 1 coarse detector + Stage 2 full-res crop verification."""
 import cv2, numpy as np
-KEEP = ("person", "backpack", "handbag", "suitcase", "knife")
+KEEP = ("person", "backpack", "handbag", "suitcase", "baseball bat", "knife", "scissors")
 
 class MotionGate:
     """Cheap always-on gate on a tiny frame. Sweeps every N frames so static objects still get seen."""

@@ -28,11 +28,23 @@ export interface Camera {
   zone_type: string;
   status: string;
   fps: number;
+  stream_url?: string;
   rtsp_url?: string;
+  protocol?: 'mjpeg' | 'http' | 'rtsp';
+  enabled?: boolean;
   map_x: number;
   map_y: number;
   zones?: Record<string, number[][]>;
   last_seen?: string;
+  error?: string | null;
+}
+
+export interface CameraTestConnectionResult {
+  status: 'CONNECTED' | 'FAILED';
+  width?: number;
+  height?: number;
+  fps?: number;
+  error?: string | null;
 }
 
 export interface DecisionRequest {
@@ -112,12 +124,55 @@ export async function getCamera(id: string): Promise<Camera> {
   return fetchJson<Camera>(`${API_BASE}/cameras/${id}`);
 }
 
-export async function saveCamera(cam: Camera): Promise<{ status: string; camera: Camera }> {
-  return fetchJson(`${API_BASE}/cameras`, {
+export async function saveCamera(cam: Partial<Camera>): Promise<Camera> {
+  return fetchJson<Camera>(`${API_BASE}/cameras`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cam)
   });
+}
+
+export async function updateCamera(id: string, cam: Partial<Camera>): Promise<Camera> {
+  return fetchJson<Camera>(`${API_BASE}/cameras/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cam)
+  });
+}
+
+export async function updateCameraPosition(id: string, map_x: number, map_y: number): Promise<{ status: string; camera_id: string; map_x: number; map_y: number }> {
+  return fetchJson(`${API_BASE}/cameras/${id}/position`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ map_x, map_y })
+  });
+}
+
+export async function deleteCamera(id: string): Promise<{ status: string; deleted: string }> {
+  return fetchJson<{ status: string; deleted: string }>(`${API_BASE}/cameras/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function testCameraConnection(stream_url: string, protocol: string = 'mjpeg'): Promise<CameraTestConnectionResult> {
+  return fetchJson<CameraTestConnectionResult>(`${API_BASE}/cameras/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stream_url, protocol })
+  });
+}
+
+export async function getSingleCameraHealth(id: string): Promise<{
+  camera_id: string;
+  name: string;
+  status: string;
+  stream_url?: string;
+  protocol?: string;
+  fps: number;
+  last_seen?: string;
+  error?: string | null;
+}> {
+  return fetchJson(`${API_BASE}/cameras/${id}/health`);
 }
 
 export async function uploadAnalysisVideo(file: File): Promise<AnalysisJobCreate> {
@@ -151,6 +206,64 @@ export async function getAnalysisStatus(jobId: string): Promise<AnalysisJobStatu
   return fetchJson<AnalysisJobStatus>(`${API_BASE}/analysis/${jobId}/status`);
 }
 
+export interface LiveTrack {
+  id: number;
+  cls: string;
+  box: [number, number, number, number];  // x1,y1,x2,y2 in pixels
+  risk_score: number;
+  signals: string[];
+}
+
+export interface DetectionItem {
+  track_id: number;
+  class: string;
+  confidence: number;
+  bbox: [number, number, number, number];  // x1,y1,x2,y2 in original pixels
+  risk_score?: number;
+  signals?: string[];
+}
+
+export interface AnalysisFramePayload {
+  job_id: string;
+  frame_index: number;
+  timestamp: number;
+  total_frames: number;
+  orig_w: number;
+  orig_h: number;
+  detections: DetectionItem[];
+  risk_score: number;
+  image?: string;
+}
+
+export interface LiveAlert {
+  id: string;
+  score: number;
+  risk_level?: string;
+  types: string[];
+  reasons: string[];
+  zone: string | null;
+  entity: string | null;
+}
+
+export interface LiveData {
+  status: string;
+  progress: number;
+  current_frame: number;
+  total_frames: number;
+  peak_risk_score: number;
+  live_frame_url: string | null;
+  image?: string | null;
+  orig_w?: number | null;
+  orig_h?: number | null;
+  detections?: DetectionItem[];
+  tracks: LiveTrack[];
+  alerts: LiveAlert[];
+}
+
+export async function getAnalysisLive(jobId: string): Promise<LiveData> {
+  return fetchJson<LiveData>(`${API_BASE}/analysis/${jobId}/live`);
+}
+
 export async function getAnalysisResult(jobId: string): Promise<AnalysisJobResult> {
   return fetchJson<AnalysisJobResult>(`${API_BASE}/analysis/${jobId}/result`);
 }
@@ -171,7 +284,7 @@ export async function getTopology(): Promise<{ nodes: any[]; edges: any[] }> {
   return fetchJson(`${API_BASE}/topology`);
 }
 
-export async function getIdentityGhosts(): Promise<{ ghosts: any[] }> {
+export async function getIdentityGhosts(): Promise<{ ghosts: any[]; recent_handoffs?: any[] }> {
   return fetchJson(`${API_BASE}/identity/ghosts`);
 }
 

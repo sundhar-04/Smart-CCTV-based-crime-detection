@@ -57,7 +57,7 @@ def get_alert_stats():
     cursor.execute("SELECT status, COUNT(*) FROM alerts GROUP BY status")
     counts = dict(cursor.fetchall())
 
-    cursor.execute("SELECT COUNT(*) FROM alerts WHERE risk_score >= 80")
+    cursor.execute("SELECT COUNT(*) FROM alerts WHERE risk_level = 'CRITICAL'")
     critical_count = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM alerts")

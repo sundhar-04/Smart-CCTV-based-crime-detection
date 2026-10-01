@@ -91,10 +91,23 @@ def seed_initial_data():
     conn.close()
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
+    import asyncio
+    try:
+        ws_manager.set_loop(asyncio.get_running_loop())
+    except Exception:
+        pass
     init_db()
     seed_initial_data()
-    logger.info("SmartCCTV Backend Server started successfully.")
+    from backend.camera_manager import camera_manager
+    camera_manager.start_all()
+    logger.info("SmartCCTV Backend Server started successfully with Camera Stream Manager active.")
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    from backend.camera_manager import camera_manager
+    camera_manager.stop_all()
+    logger.info("SmartCCTV Camera Stream Manager stopped cleanly.")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -114,3 +127,6 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
+# Reload trigger: 2026-09-28T16:20:15
+
+

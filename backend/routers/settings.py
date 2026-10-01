@@ -19,7 +19,8 @@ DEFAULT_SETTINGS = {
         "loitering_threshold_s": 15,
         "restricted_zone_weight": 40,
         "abandoned_object_threshold_s": 20,
-        "running_person_weight": 25,
+        "running_person_weight": 20,
+        "weapon_near_person_weight": 55,
         "critical_alert_threshold": 80,
         "high_alert_threshold": 60,
         "elevated_alert_threshold": 35

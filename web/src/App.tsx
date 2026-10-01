@@ -90,17 +90,43 @@ export function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    // Listen to WebSocket alert events
-    const unsubAlert = wsClient.subscribe('alert.updated', (eventData: any) => {
+    const recentAlertsMap: { [key: string]: number } = {};
+    const handleNewAlert = (eventData: any) => {
       const alertItem = eventData.data || eventData;
+      const suspectId = alertItem.entity || alertItem.id || 'general';
+      const now = Date.now();
+      // Suppress repeat popup toasts & notifications for the same suspect across all cameras (120s cooldown)
+      if (recentAlertsMap[suspectId] && now - recentAlertsMap[suspectId] < 120000) {
+        return;
+      }
+      recentAlertsMap[suspectId] = now;
+
+      const primaryReason = alertItem.reasons?.[0] || alertItem.types?.[0] || 'Suspicious Action Detected';
       const newToast: ToastItem = {
-        id: `toast-${Date.now()}`,
-        title: `Alert ${alertItem.id} Updated`,
-        sub: `Status changed to ${alertItem.status}`,
-        risk: alertItem.risk_level?.toLowerCase() || 'info',
+        id: `toast-${Date.now()}-${Math.random()}`,
+        title: `🚨 CRIME ALERT: [${suspectId}] at ${alertItem.camera_name || 'Camera'}`,
+        sub: `${primaryReason} (Risk: ${Math.round(alertItem.risk_score || 0)})`,
+        risk: alertItem.risk_level?.toLowerCase() || 'critical',
         timestamp: Date.now()
       };
-      setToasts((prev) => [newToast, ...prev.slice(0, 4)]);
+      setToasts((prev) => [newToast, ...prev.slice(0, 3)]);
+      setNotifications((prev) => [
+        {
+          id: alertItem.id,
+          title: `🚨 ${alertItem.risk_level || 'CRITICAL'} — [${suspectId}] at ${alertItem.camera_name || 'Camera'}`,
+          sub: primaryReason,
+          kind: 'alert',
+          risk: alertItem.risk_level?.toLowerCase() || 'critical',
+          timestamp: Date.now()
+        },
+        ...prev
+      ]);
+    };
+
+    const unsubNewAlert = wsClient.subscribe('new_alert', handleNewAlert);
+
+    const unsubAlert = wsClient.subscribe('alert.updated', (eventData: any) => {
+      const alertItem = eventData.data || eventData;
       setNotifications((prev) => [
         {
           id: alertItem.id,
@@ -116,6 +142,7 @@ export function App() {
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      unsubNewAlert();
       unsubAlert();
       clearInterval(clockTimer);
     };
