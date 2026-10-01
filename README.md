@@ -14,32 +14,35 @@ An end-to-end, enterprise-grade AI surveillance and crime detection system power
 
 ## 📸 Key Features
 
-- **🎯 AI-Powered Threat Detection (YOLOv8)**:
-  - Detects persons, weapons, abandoned items, and suspicious movement.
-  - **Two-Stage Cascade**: Low-latency motion gating combined with high-resolution crop verification to minimize GPU compute while preserving high detection accuracy.
+- **🎯 AI-Powered Multi-Model Threat Detection**:
+  - **YOLOv8 Object Detection**: Detects persons, weapons, abandoned items, and suspicious movement. Uses a two-stage cascade with motion gating and crop verification to minimize GPU compute while preserving high detection accuracy.
+  - **🤸 YOLOv8-Pose Violence & Fight Classifier**: Real-time 17-keypoint skeleton analysis detecting physical strikes/punches (wrist velocity spikes), overhead weapon swings, sudden sprint rushes, and collapsed/fallen subjects.
+  - **🔪 Dedicated Weapon Detection**: Specialized classifier for firearms, edged weapons, and blunt objects.
 
 - **📈 Risk Accumulation & Dynamic Alert Engine**:
   - Replaces binary detection noise with continuous risk scoring ($0 - 100$).
-  - Accumulates threat scores based on restricted zone intrusions, loitering dwell time, velocity spikes, and night/after-hours temporal modifiers.
+  - Accumulates threat scores based on restricted zone intrusions, loitering dwell time, velocity spikes, violent posture indicators, and night/after-hours temporal modifiers.
   - Includes alert budgeting to prevent notification fatigue.
 
 - **⛓️ Cryptographic Chain of Custody (SHA-256)**:
   - Every detected incident generates an immutable SHA-256 hash block.
   - Linked hash chains ensure audit integrity and prevent unauthorized evidence manipulation or video deletion.
 
-- **🎥 Interactive Video Analytics & Zone Editor**:
-  - Upload security footage and visually draw dynamic polygonal restricted zones.
-  - Background asynchronous frame processing with progress tracking, risk score timeline charts, and downloadable annotated MP4 videos.
+- **🎥 Live Camera Stream Manager & Ingestion**:
+  - Seamless ingestion of RTSP streams, IP phone cameras, USB webcams, and pre-recorded footage.
+  - Dynamic camera addition and configuration directly from the UI without restarting services.
+
+- **🔗 Unified Cross-Camera ReID & Topology**:
+  - Re-identification (ReID) framework mapping entity handoffs across unmonitored camera blind spots.
+  - Visual Identity Topology graph showing real-time path trajectories and camera handoffs.
 
 - **🗺️ Interactive GIS & Spatial Camera Map**:
   - Visual floorplan/map view displaying live camera statuses, field-of-view coverage cones, and real-time incident risk heat map.
 
-- **🔗 Multi-Camera Topology & Blind-Spot Linking**:
-  - Re-identification (ReID) framework mapping entity handoffs across unmonitored camera blind spots.
-
 - **🚨 Operator Dispatch & Alerting**:
   - Human-in-the-loop incident response: REVIEWING $\rightarrow$ CONFIRMED / DISMISSED.
   - Real-time Telegram Bot & HTTP Webhook integrations for instant mobile alerting upon confirmation.
+
 
 ---
 
@@ -48,23 +51,23 @@ An end-to-end, enterprise-grade AI surveillance and crime detection system power
 ```text
                      ┌──────────────────────────────────────────────┐
                      │          React + TypeScript Frontend         │
-                     │  (Command Center, Maps, Analytics, Alerts)  │
+                     │  (Command Center, Maps, Topology, Analysis)  │
                      └──────────────────────┬───────────────────────┘
                                             │ HTTP / REST & WebSockets
                                             ▼
                      ┌──────────────────────────────────────────────┐
                      │            FastAPI Backend Server            │
-                     │          (Routers, WS Manager, DB)           │
+                     │   (Routers, CameraManager, CrossCamCoord)    │
                      └───────┬──────────────────────────────┬───────┘
                              │                              │
                              ▼                              ▼
-            ┌────────────────────────────────┐  ┌───────────────────────┐
-            │   YOLOv8 + Risk Detection      │  │  SQLite + SHA-256     │
-            │   - Motion Gate (Stage 1)      │  │  Cryptographic        │
-            │   - Crop Verification (Stage 2)│  │  Audit Chain          │
-            │   - ByteTrack / IOU Tracker    │  └───────────────────────┘
-            │   - Risk Scoring Engine        │
-            └────────────────────────────────┘
+             ┌────────────────────────────────┐  ┌───────────────────────┐
+             │   AI Analytics & Vision Core   │  │  SQLite + SHA-256     │
+             │   - YOLOv8 (Objects & Weapons) │  │  Cryptographic        │
+             │   - YOLOv8-Pose (Strikes/Falls)│  │  Audit Chain          │
+             │   - ByteTrack & Cross-Cam ReID │  └───────────────────────┘
+             │   - Multi-Signal Risk Engine   │
+             └────────────────────────────────┘
 ```
 
 ---
@@ -72,37 +75,42 @@ An end-to-end, enterprise-grade AI surveillance and crime detection system power
 ## 📁 Repository Structure
 
 ```text
-├── backend/                  # FastAPI Backend API Server
-│   ├── main.py               # Application entry point & router mounting
-│   ├── bridge.py             # Bridge connecting FastAPI to SmartCCTV engine
-│   ├── database.py           # SQLite database schema & connection manager
-│   ├── models.py             # Pydantic data schemas
-│   ├── ws.py                 # WebSocket broadcast manager
-│   └── routers/              # API Endpoints (alerts, cameras, analysis, system, etc.)
+├── backend/                       # FastAPI Backend API Server
+│   ├── main.py                    # Application entry point & router mounting
+│   ├── bridge.py                  # Bridge connecting FastAPI to SmartCCTV engine
+│   ├── camera_manager.py          # Multi-camera live stream ingestion & frame buffer
+│   ├── cross_cam_coordinator.py   # Cross-camera ReID and identity handoff engine
+│   ├── database.py                # SQLite database schema & connection manager
+│   ├── models.py                  # Pydantic data schemas
+│   ├── ws.py                      # WebSocket broadcast manager
+│   └── routers/                   # API Endpoints (alerts, cameras, analysis, topology...)
 │
-├── web/                      # Modern React + Vite + TypeScript Web Interface
+├── web/                           # Modern React + Vite + TypeScript Web Interface
 │   ├── src/
-│   │   ├── pages/            # Page components (CommandCenter, VideoAnalysis, CameraMap...)
-│   │   ├── components/       # UI Components & Navigation sidebar
-│   │   ├── api/              # Axios REST API client bindings
-│   │   └── ws/               # Real-time WebSocket connection hooks
-│   ├── package.json          # Node dependencies & npm scripts
-│   └── vite.config.ts        # Vite build & dev server config
+│   │   ├── pages/                 # CommandCenter, IdentityTopology, CameraMap, VideoAnalysis...
+│   │   ├── components/            # AddCameraModal, ChartCanvas, RiskBadge, ZoneEditor...
+│   │   ├── api/                   # Axios REST API client bindings
+│   │   └── ws/                    # Real-time WebSocket connection hooks
+│   ├── package.json               # Node dependencies & npm scripts
+│   └── vite.config.ts             # Vite build & dev server config
 │
-├── smartcctv/                # Core Computer Vision & AI Analytics Engine
+├── smartcctv/                     # Core Computer Vision & AI Analytics Engine
 │   └── w/
 │       ├── smartcctv/
 │       │   ├── detector_yolo8.py  # YOLOv8 object detector with crop verification
+│       │   ├── pose_violence.py   # YOLOv8-pose keypoint strike & fight detection
+│       │   ├── weapon_detector.py # Weapon detection pipeline
+│       │   ├── tracker.py         # Multi-target tracker & trajectory estimation
 │       │   ├── risk.py            # Multi-signal risk accumulation engine
 │       │   ├── evidence.py        # Video evidence recorder & SHA-256 hash chain
 │       │   ├── tamper.py          # Camera tamper & occlusion monitor
-│       │   ├── multi_cam.py       # Cross-camera tracking pipeline
 │       │   └── run.py             # CLI runner for standalone processing
 │       └── eval/                  # Evaluation suite & benchmark scripts
 │
-├── yolov8n.pt                # Pre-trained YOLOv8 weights
-├── requirements.txt          # Python dependencies
-└── README.md                 # Project documentation & setup guide
+├── yolov8n.pt                     # Pre-trained YOLOv8 object weights
+├── yolov8n-pose.pt                # Pre-trained YOLOv8 pose keypoint weights
+├── requirements.txt               # Python dependencies
+└── README.md                      # Project documentation & setup guide
 ```
 
 ---
@@ -233,6 +241,10 @@ python smartcctv/w/smartcctv/tests/test_all.py
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `GET /api/cameras` | `GET` | Retrieve status, location, and parameters of all registered cameras |
+| `POST /api/cameras` | `POST` | Register a new camera stream (RTSP, IP phone feed, webcam, video) |
+| `DELETE /api/cameras/{id}` | `DELETE` | Deregister and remove a camera feed |
+| `GET /api/cameras/{id}/snapshot` | `GET` | Retrieve the latest real-time frame snapshot from a live camera |
+| `GET /api/topology` | `GET` | Query multi-camera network topology, blind-spot links, and handoff state |
 | `POST /api/analysis/upload` | `POST` | Upload video file for automated YOLOv8 crime/risk analysis |
 | `GET /api/analysis/jobs/{id}` | `GET` | Get real-time progress and results of a video analysis job |
 | `GET /api/alerts` | `GET` | Query active and historical threat alerts |
